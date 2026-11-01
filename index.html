@@ -1180,6 +1180,32 @@ $('#btnPdf').onclick=async()=>{
   }finally{b.disabled=false;b.textContent='Unduh PDF';}
 };
 
+/* ---------- Data CV di dalam JPG ----------
+   Isian CV (tanpa foto) disisipkan sebagai komentar JPEG (segmen COM) agar aplikasi penilai,
+   misalnya Ruang Nilai, bisa membaca isinya dengan tepat tanpa menebak tulisan dari gambar.
+   Tampilan gambar tidak berubah. */
+const PENANDA_DATA='CVMAKER-DATA:';
+function dataUntukPenilai(){
+  const D=JSON.parse(JSON.stringify(S));
+  D.p.foto=!!S.p.foto;
+  return {v:1,app:'cv-maker',dibuat:new Date().toISOString(),tpl:D.tpl,p:D.p,
+    skill:parseSkills(S).map(s=>s.n),exp:filled(S,'exp'),edu:filled(S,'edu'),proj:filled(S,'proj'),org:filled(S,'org'),cert:filled(S,'cert'),lang:filled(S,'lang')};
+}
+async function sisipkanDataCV(blob){
+  try{
+    const isi=PENANDA_DATA+btoa(unescape(encodeURIComponent(JSON.stringify(dataUntukPenilai()))));
+    if(isi.length>65000)return blob;
+    const b=new Uint8Array(await blob.arrayBuffer());
+    if(b[0]!==0xFF||b[1]!==0xD8)return blob;
+    let pos=2;
+    if(b[2]===0xFF&&b[3]===0xE0)pos=4+((b[4]<<8)|b[5]);
+    const seg=new Uint8Array(4+isi.length);
+    seg[0]=0xFF;seg[1]=0xFE;seg[2]=(isi.length+2)>>8;seg[3]=(isi.length+2)&255;
+    for(let i=0;i<isi.length;i++)seg[4+i]=isi.charCodeAt(i);
+    return new Blob([b.subarray(0,pos),seg,b.subarray(pos)],{type:'image/jpeg'});
+  }catch(e){return blob;}
+}
+
 /* ---------- JPG: one continuous image, no page breaks ---------- */
 $('#btnJpg').onclick=async()=>{
   const b=$('#btnJpg');if(!S.p.nama.trim()){toast('Isi nama lengkap terlebih dahulu.');return;}
@@ -1193,8 +1219,9 @@ $('#btnJpg').onclick=async()=>{
     const h=Math.max(PH,el.scrollHeight);el.style.minHeight=h+'px';
     const canvas=await html2canvas(el,{scale:2,useCORS:true,backgroundColor:bg,width:794,height:h,windowWidth:794,scrollX:0,scrollY:0,
       onclone:doc=>{const x=doc.getElementById('exportHost');if(x){x.style.left='0px';x.style.top='0px';}}});
-    const blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',.93));
+    let blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',.93));
     if(!blob)throw new Error('encode');
+    blob=await sisipkanDataCV(blob);
     await saveFile('CV - '+S.p.nama.trim().replace(/[\\/:*?"<>|]/g,'')+'.jpg',blob);toast('JPG tersimpan.');
   }catch(e){
     const c=e&&e.code;
